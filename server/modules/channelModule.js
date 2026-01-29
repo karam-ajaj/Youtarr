@@ -358,13 +358,14 @@ class ChannelModule {
   }
 
   /**
-   * Map channel database record to response format
-   * @param {Object} channel - Channel database record
-   * @returns {Object} - Formatted channel response
+   * Map channel/playlist database record to response format
+   * @param {Object} channel - Channel/playlist database record
+   * @returns {Object} - Formatted channel/playlist response
    */
   mapChannelToResponse(channel) {
+    const isPlaylist = channel.source_type === 'playlist';
     return {
-      id: channel.channel_id,
+      id: isPlaylist ? channel.playlist_id : channel.channel_id,
       uploader: channel.uploader,
       uploader_id: channel.uploader_id || channel.channel_id,
       title: channel.title,
@@ -378,13 +379,15 @@ class ChannelModule {
       min_duration: channel.min_duration || null,
       max_duration: channel.max_duration || null,
       title_filter_regex: channel.title_filter_regex || null,
+      source_type: channel.source_type || 'channel',
+      playlist_id: channel.playlist_id || null,
     };
   }
 
   /**
-   * Map channel database record to list response format expected by the UI
-   * @param {Object} channel - Channel database record
-   * @returns {Object} - Simplified channel representation
+   * Map channel/playlist database record to list response format expected by the UI
+   * @param {Object} channel - Channel/playlist database record
+   * @returns {Object} - Simplified channel/playlist representation
    */
   mapChannelListEntry(channel) {
     return {
@@ -399,15 +402,17 @@ class ChannelModule {
       max_duration: channel.max_duration || null,
       title_filter_regex: channel.title_filter_regex || null,
       audio_format: channel.audio_format || null,
+      source_type: channel.source_type || 'channel',
+      playlist_id: channel.playlist_id || null,
     };
   }
 
   /**
-   * Resolve the folder name for a channel with fallback to yt-dlp.
+   * Resolve the folder name for a channel/playlist with fallback to yt-dlp.
    * Uses cached folder_name if available, otherwise calls yt-dlp to get
    * the authoritative sanitized folder name and saves it to the database.
    *
-   * @param {Object} channel - Channel record with channel_id, folder_name, uploader
+   * @param {Object} channel - Channel/playlist record with channel_id/playlist_id, folder_name, uploader, source_type
    * @returns {Promise<string>} - The resolved folder name
    */
   async resolveChannelFolderName(channel) {
@@ -416,16 +421,30 @@ class ChannelModule {
       return channel.folder_name;
     }
 
+    const isPlaylist = channel.source_type === 'playlist';
+    let url;
+    
+    if (isPlaylist && channel.playlist_id) {
+      url = this.resolvePlaylistUrlFromId(channel.playlist_id);
+    } else if (channel.channel_id) {
+      url = this.resolveChannelUrlFromId(channel.channel_id);
+    } else {
+      // No valid ID available, fall back to sanitizing uploader
+      logger.warn({ channel }, 'No channel_id or playlist_id available for folder name resolution');
+      return sanitizeNameLikeYtDlp(channel.uploader || channel.title || 'Unknown');
+    }
+
     // Slow path: call yt-dlp to get authoritative folder name
-    const channelUrl = `https://www.youtube.com/channel/${channel.channel_id}`;
     let channelData;
     try {
-      channelData = await this.fetchChannelMetadata(channelUrl);
+      channelData = await this.fetchChannelMetadata(url);
     } catch (fetchErr) {
       // If yt-dlp fails, fall back to sanitizing the uploader name
-      logger.warn({ channelId: channel.channel_id, uploader: channel.uploader },
-        'Could not determine folder_name via yt-dlp, using uploader as fallback');
-      return sanitizeNameLikeYtDlp(channel.uploader);
+      logger.warn({ 
+        identifier: isPlaylist ? channel.playlist_id : channel.channel_id, 
+        uploader: channel.uploader 
+      }, 'Could not determine folder_name via yt-dlp, using uploader as fallback');
+      return sanitizeNameLikeYtDlp(channel.uploader || channel.title || 'Unknown');
     }
 
     const folderName = channelData.folder_name;
@@ -433,24 +452,34 @@ class ChannelModule {
     if (folderName) {
       // Save to database for future fast access
       try {
+        const whereClause = isPlaylist 
+          ? { playlist_id: channel.playlist_id }
+          : { channel_id: channel.channel_id };
+        
         await Channel.update(
           { folder_name: folderName },
-          { where: { channel_id: channel.channel_id } }
+          { where: whereClause }
         );
-        logger.info({ channelId: channel.channel_id, folderName },
-          'Populated folder_name via yt-dlp fallback');
+        logger.info({ 
+          identifier: isPlaylist ? channel.playlist_id : channel.channel_id, 
+          folderName 
+        }, 'Populated folder_name via yt-dlp fallback');
       } catch (updateErr) {
-        logger.warn({ err: updateErr.message, channelId: channel.channel_id },
-          'Failed to save folder_name to database');
+        logger.warn({ 
+          err: updateErr.message, 
+          identifier: isPlaylist ? channel.playlist_id : channel.channel_id 
+        }, 'Failed to save folder_name to database');
       }
       return folderName;
     }
 
     // Ultimate fallback (should rarely happen - yt-dlp returned no folder_name)
     // Just sanitize the uploader we already have
-    logger.warn({ channelId: channel.channel_id, uploader: channel.uploader },
-      'Could not determine folder_name via yt-dlp, using uploader as fallback');
-    return sanitizeNameLikeYtDlp(channel.uploader);
+    logger.warn({ 
+      identifier: isPlaylist ? channel.playlist_id : channel.channel_id, 
+      uploader: channel.uploader 
+    }, 'Could not determine folder_name via yt-dlp, using uploader as fallback');
+    return sanitizeNameLikeYtDlp(channel.uploader || channel.title || 'Unknown');
   }
 
   /**
@@ -975,7 +1004,10 @@ class ChannelModule {
       }
 
       for (const channel of channels) {
-        if (!channel.channel_id) continue;
+        const isPlaylist = channel.source_type === 'playlist';
+        const identifier = isPlaylist ? channel.playlist_id : channel.channel_id;
+        
+        if (!identifier) continue;
 
         // Use folder_name (sanitized by yt-dlp) if available, fall back to uploader
         const channelFolderName = channel.folder_name || channel.uploader;
@@ -984,15 +1016,15 @@ class ChannelModule {
         const channelFolderPath = path.join(outputDir, channelFolderName);
         const channelPosterPath = path.join(channelFolderPath, 'poster.jpg');
 
-        // Check if channel folder exists and poster.jpg doesn't exist
+        // Check if channel/playlist folder exists and poster.jpg doesn't exist
         if (fs.existsSync(channelFolderPath) && !fs.existsSync(channelPosterPath)) {
-          const channelThumbPath = path.join(imageDir, `channelthumb-${channel.channel_id}.jpg`);
+          const channelThumbPath = path.join(imageDir, `channelthumb-${identifier}.jpg`);
 
           if (fs.existsSync(channelThumbPath)) {
             try {
               fs.copySync(channelThumbPath, channelPosterPath);
             } catch (copyErr) {
-              logger.error({ err: copyErr, channelFolderName }, 'Error backfilling poster for channel');
+              logger.error({ err: copyErr, channelFolderName }, 'Error backfilling poster for channel/playlist');
             }
           }
         }
@@ -1249,13 +1281,20 @@ class ChannelModule {
     try {
       const channels = await Channel.findAll({
         where: { enabled: true },
-        attributes: ['channel_id', 'url', 'auto_download_enabled_tabs']
+        attributes: ['channel_id', 'playlist_id', 'source_type', 'url', 'auto_download_enabled_tabs']
       });
 
-      // Generate URLs for each channel, respecting their auto_download_enabled_tabs setting
+      // Generate URLs for each channel/playlist, respecting their auto_download_enabled_tabs setting
       const urls = [];
       for (const channel of channels) {
-        if (channel.channel_id) {
+        const isPlaylist = channel.source_type === 'playlist';
+        
+        if (isPlaylist && channel.playlist_id) {
+          // For playlists, use the playlist URL directly (no tabs)
+          const playlistUrl = this.resolvePlaylistUrlFromId(channel.playlist_id);
+          urls.push(playlistUrl);
+        } else if (channel.channel_id) {
+          // For channels, generate URLs with tabs
           const canonical = this.resolveChannelUrlFromId(channel.channel_id);
 
           // Parse the enabled tabs for this channel (empty string means no tabs enabled)
@@ -1292,15 +1331,15 @@ class ChannelModule {
             urls.push(`${canonical}/${tabUrl}`);
           }
         } else {
-          // Fallback for channels without channel_id
+          // Fallback for channels without channel_id or playlist_id
           urls.push(channel.url);
         }
       }
 
       // Check if we have any URLs to download
       if (urls.length === 0) {
-        const error = new Error('No valid channel URLs to download - all enabled channels have no enabled tabs');
-        logger.warn('No URLs generated for channel downloads - all enabled channels have disabled tabs');
+        const error = new Error('No valid channel/playlist URLs to download - all enabled sources have no enabled tabs');
+        logger.warn('No URLs generated for downloads - all enabled sources have disabled tabs');
         throw error;
       }
 
