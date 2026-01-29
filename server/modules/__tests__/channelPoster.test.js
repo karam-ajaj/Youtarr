@@ -183,7 +183,7 @@ describe('Channel Poster Functionality', () => {
           err: testError,
           channelFolderName: 'Test Channel'
         }),
-        'Error backfilling poster for channel'
+        'Error backfilling poster for channel/playlist'
       );
     });
 

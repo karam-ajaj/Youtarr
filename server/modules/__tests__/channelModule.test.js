@@ -443,6 +443,8 @@ describe('ChannelModule', () => {
           min_duration: null,
           max_duration: null,
           title_filter_regex: null,
+          source_type: 'channel',
+          playlist_id: null,
         });
       });
 
@@ -501,7 +503,8 @@ describe('ChannelModule', () => {
           description: channelData.description,
           uploader: channelData.uploader,
           url: channelData.url,
-          enabled: false
+          enabled: false,
+          source_type: 'channel',
         });
         expect(result).toBe(mockChannel);
       });
@@ -532,7 +535,8 @@ describe('ChannelModule', () => {
           description: channelData.description,
           uploader: channelData.uploader,
           url: channelData.url,
-          enabled: false
+          enabled: false,
+          source_type: 'channel',
         });
       });
 
@@ -566,7 +570,8 @@ describe('ChannelModule', () => {
           description: channelData.description,
           uploader: channelData.uploader,
           url: channelData.url,
-          enabled: false
+          enabled: false,
+          source_type: 'channel',
         });
       });
     });
@@ -1963,9 +1968,9 @@ describe('ChannelModule', () => {
         Channel.findAll = jest.fn().mockResolvedValue(mockChannels);
         fsPromises.writeFile.mockResolvedValue();
 
-        await expect(ChannelModule.generateChannelsFile()).rejects.toThrow('No valid channel URLs to download');
+        await expect(ChannelModule.generateChannelsFile()).rejects.toThrow('No valid channel/playlist URLs to download');
 
-        expect(logger.warn).toHaveBeenCalledWith('No URLs generated for channel downloads - all enabled channels have disabled tabs');
+        expect(logger.warn).toHaveBeenCalledWith('No URLs generated for downloads - all enabled sources have disabled tabs');
       });
 
       test('should handle error and cleanup temp file', async () => {
@@ -2714,7 +2719,7 @@ describe('ChannelModule', () => {
         { where: { channel_id: 'UC123' } }
       );
       expect(logger.info).toHaveBeenCalledWith(
-        expect.objectContaining({ channelId: 'UC123', folderName: 'Sanitized Folder Name' }),
+        expect.objectContaining({ identifier: 'UC123', folderName: 'Sanitized Folder Name' }),
         'Populated folder_name via yt-dlp fallback'
       );
     });
@@ -2736,7 +2741,7 @@ describe('ChannelModule', () => {
 
       expect(result).toBe('Fallback Uploader Name');
       expect(logger.warn).toHaveBeenCalledWith(
-        expect.objectContaining({ channelId: 'UC123', uploader: 'Fallback Uploader Name' }),
+        expect.objectContaining({ identifier: 'UC123', uploader: 'Fallback Uploader Name' }),
         'Could not determine folder_name via yt-dlp, using uploader as fallback'
       );
     });
@@ -2782,7 +2787,7 @@ describe('ChannelModule', () => {
       // Should still return the folder name even if DB update fails
       expect(result).toBe('Sanitized Name');
       expect(logger.warn).toHaveBeenCalledWith(
-        expect.objectContaining({ channelId: 'UC123' }),
+        expect.objectContaining({ identifier: 'UC123' }),
         'Failed to save folder_name to database'
       );
     });
@@ -2807,7 +2812,7 @@ describe('ChannelModule', () => {
 
       expect(result).toBe('Fallback Name');
       expect(logger.warn).toHaveBeenCalledWith(
-        expect.objectContaining({ channelId: 'UC123', uploader: 'Fallback Name' }),
+        expect.objectContaining({ identifier: 'UC123', uploader: 'Fallback Name' }),
         'Could not determine folder_name via yt-dlp, using uploader as fallback'
       );
     });

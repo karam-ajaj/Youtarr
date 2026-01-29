@@ -197,8 +197,8 @@ describe('ChannelManager Component', () => {
 
     test('displays add channel input and button', () => {
       renderChannelManager();
-      expect(screen.getByPlaceholderText('Paste a channel URL or @handle')).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /add channel/i })).toBeInTheDocument();
+      expect(screen.getByPlaceholderText('Paste a channel or playlist URL (e.g., @handle or playlist?list=...)')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /add/i })).toBeInTheDocument();
     });
 
     test('shows loading state when fetching channels', () => {
@@ -330,9 +330,9 @@ describe('ChannelManager Component', () => {
 
       renderChannelManager();
 
-      const input = screen.getByPlaceholderText('Paste a channel URL or @handle');
+      const input = screen.getByPlaceholderText('Paste a channel or playlist URL (e.g., @handle or playlist?list=...)');
       await user.type(input, 'https://www.youtube.com/@newchannel');
-      await user.click(screen.getByRole('button', { name: /add channel/i }));
+      await user.click(screen.getByRole('button', { name: /add/i }));
 
       await waitFor(() => {
         expect(mockAddChannel).toHaveBeenCalledWith('https://www.youtube.com/@newchannel');
@@ -345,7 +345,7 @@ describe('ChannelManager Component', () => {
 
       renderChannelManager();
 
-      const input = screen.getByPlaceholderText('Paste a channel URL or @handle');
+      const input = screen.getByPlaceholderText('Paste a channel or playlist URL (e.g., @handle or playlist?list=...)');
       await user.type(input, 'https://www.youtube.com/@newchannel');
       await user.keyboard('{Enter}');
 
@@ -357,7 +357,7 @@ describe('ChannelManager Component', () => {
     test('does not add channel when input is empty', () => {
       renderChannelManager();
 
-      const addButton = screen.getByRole('button', { name: /add channel/i });
+      const addButton = screen.getByRole('button', { name: /add/i });
       // Button should be disabled when input is empty
       expect(addButton).toBeDisabled();
       expect(mockAddChannel).not.toHaveBeenCalled();
@@ -369,9 +369,9 @@ describe('ChannelManager Component', () => {
 
       renderChannelManager();
 
-      const input = screen.getByPlaceholderText('Paste a channel URL or @handle') as HTMLInputElement;
+      const input = screen.getByPlaceholderText('Paste a channel or playlist URL (e.g., @handle or playlist?list=...)') as HTMLInputElement;
       await user.type(input, 'https://www.youtube.com/@newchannel');
-      await user.click(screen.getByRole('button', { name: /add channel/i }));
+      await user.click(screen.getByRole('button', { name: /add/i }));
 
       await waitFor(() => {
         expect(input.value).toBe('');
@@ -387,9 +387,9 @@ describe('ChannelManager Component', () => {
 
       renderChannelManager();
 
-      const input = screen.getByPlaceholderText('Paste a channel URL or @handle');
+      const input = screen.getByPlaceholderText('Paste a channel or playlist URL (e.g., @handle or playlist?list=...)');
       await user.type(input, 'https://www.youtube.com/@invalid');
-      await user.click(screen.getByRole('button', { name: /add channel/i }));
+      await user.click(screen.getByRole('button', { name: /add/i }));
 
       await waitFor(() => {
         expect(screen.getByText('Channel not found')).toBeInTheDocument();
@@ -422,9 +422,9 @@ describe('ChannelManager Component', () => {
 
       renderChannelManager();
 
-      const input = screen.getByPlaceholderText('Paste a channel URL or @handle');
+      const input = screen.getByPlaceholderText('Paste a channel or playlist URL (e.g., @handle or playlist?list=...)');
       await user.type(input, 'https://www.youtube.com/@existing');
-      await user.click(screen.getByRole('button', { name: /add channel/i }));
+      await user.click(screen.getByRole('button', { name: /add/i }));
 
       await waitFor(() => {
         expect(screen.getByText('Channel already exists')).toBeInTheDocument();
@@ -1212,9 +1212,9 @@ describe('ChannelManager Component', () => {
 
       renderChannelManager();
 
-      const input = screen.getByPlaceholderText('Paste a channel URL or @handle');
+      const input = screen.getByPlaceholderText('Paste a channel or playlist URL (e.g., @handle or playlist?list=...)');
       await user.type(input, '@test');
-      await user.click(screen.getByRole('button', { name: /add channel/i }));
+      await user.click(screen.getByRole('button', { name: /add/i }));
 
       await waitFor(() => {
         expect(screen.getByText('Test error')).toBeInTheDocument();

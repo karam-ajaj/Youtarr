@@ -295,6 +295,10 @@ class ChannelModule {
           isPlaylist = true;
           playlistId = channelUrlOrId;
           channelUrl = this.resolvePlaylistUrlFromId(playlistId);
+        } else {
+          // Not found in either - assume it's a channel ID
+          channelId = channelUrlOrId;
+          channelUrl = this.resolveChannelUrlFromId(channelId);
         }
       }
     }
