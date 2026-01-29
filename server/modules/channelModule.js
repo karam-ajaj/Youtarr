@@ -235,33 +235,71 @@ class ChannelModule {
   }
 
   /**
-   * Find channel by URL or ID
-   * @param {string} channelUrlOrId - Channel URL or ID
-   * @returns {Promise<Object>} - Channel object with url and id
+   * Find channel or playlist by URL or ID
+   * @param {string} channelUrlOrId - Channel/Playlist URL or ID
+   * @returns {Promise<Object>} - Object with foundChannel, channelUrl, channelId, isPlaylist, playlistId
    */
   async findChannelByUrlOrId(channelUrlOrId) {
     let channelUrl = '';
     let channelId = '';
+    let playlistId = null;
+    let isPlaylist = false;
     let foundChannel = null;
 
     if (channelUrlOrId.startsWith('http')) {
       channelUrl = channelUrlOrId;
-      foundChannel = await Channel.findOne({
-        where: { url: channelUrl },
-      });
-      if (foundChannel && foundChannel.channel_id) {
-        channelId = foundChannel.channel_id;
-        channelUrl = this.resolveChannelUrlFromId(channelId);
+      
+      // Check if this is a playlist URL
+      if (this.isPlaylistUrl(channelUrl)) {
+        isPlaylist = true;
+        playlistId = this.extractPlaylistId(channelUrl);
+        
+        // Look for existing playlist by playlist_id
+        foundChannel = await Channel.findOne({
+          where: { playlist_id: playlistId },
+        });
+        
+        if (!foundChannel) {
+          // Also check by URL in case it was stored with URL
+          foundChannel = await Channel.findOne({
+            where: { url: channelUrl },
+          });
+        }
+      } else {
+        // Regular channel URL
+        foundChannel = await Channel.findOne({
+          where: { url: channelUrl },
+        });
+        if (foundChannel && foundChannel.channel_id) {
+          channelId = foundChannel.channel_id;
+          channelUrl = this.resolveChannelUrlFromId(channelId);
+        }
       }
     } else {
-      channelId = channelUrlOrId;
+      // ID provided - could be channel ID or playlist ID
+      // Try channel_id first
       foundChannel = await Channel.findOne({
-        where: { channel_id: channelId },
+        where: { channel_id: channelUrlOrId },
       });
-      channelUrl = this.resolveChannelUrlFromId(channelId);
+      
+      if (foundChannel) {
+        channelId = channelUrlOrId;
+        channelUrl = this.resolveChannelUrlFromId(channelId);
+      } else {
+        // Try playlist_id
+        foundChannel = await Channel.findOne({
+          where: { playlist_id: channelUrlOrId },
+        });
+        
+        if (foundChannel) {
+          isPlaylist = true;
+          playlistId = channelUrlOrId;
+          channelUrl = this.resolvePlaylistUrlFromId(playlistId);
+        }
+      }
     }
 
-    return { foundChannel, channelUrl, channelId };
+    return { foundChannel, channelUrl, channelId, isPlaylist, playlistId };
   }
 
   /**
@@ -276,6 +314,47 @@ class ChannelModule {
       ? `UC${channelId.substring(2)}`
       : channelId;
     return `https://www.youtube.com/channel/${normalizedId}`;
+  }
+
+  /**
+   * Check if a URL is a YouTube playlist URL
+   * @param {string} url - URL to check
+   * @returns {boolean} - True if URL is a playlist URL
+   */
+  isPlaylistUrl(url) {
+    if (!url || typeof url !== 'string') return false;
+    try {
+      const urlObj = new URL(url);
+      // Check for playlist parameter
+      return urlObj.searchParams.has('list');
+    } catch (error) {
+      return false;
+    }
+  }
+
+  /**
+   * Extract playlist ID from a YouTube playlist URL
+   * @param {string} url - Playlist URL
+   * @returns {string|null} - Playlist ID or null if not found
+   */
+  extractPlaylistId(url) {
+    if (!url || typeof url !== 'string') return null;
+    try {
+      const urlObj = new URL(url);
+      return urlObj.searchParams.get('list');
+    } catch (error) {
+      return null;
+    }
+  }
+
+  /**
+   * Build a canonical YouTube playlist URL from a playlist ID
+   * @param {string} playlistId - Playlist ID
+   * @returns {string} - Canonical playlist URL
+   */
+  resolvePlaylistUrlFromId(playlistId) {
+    if (!playlistId) return '';
+    return `https://www.youtube.com/playlist?list=${playlistId}`;
   }
 
   /**
@@ -382,20 +461,57 @@ class ChannelModule {
    * @returns {Promise<Object>} - Saved channel record
    */
   async upsertChannel(channelData, enabled = false, autoDownloadEnabledTabs = null) {
-    // First, try to find by channel_id (preferred)
-    let channel = await Channel.findOne({
-      where: { channel_id: channelData.id }
-    });
+    let channel = null;
+    
+    // Determine if this is a playlist or channel
+    const isPlaylist = channelData.source_type === 'playlist' || channelData.playlist_id;
+    
+    if (isPlaylist) {
+      // For playlists, find by playlist_id
+      channel = await Channel.findOne({
+        where: { playlist_id: channelData.playlist_id }
+      });
+      
+      if (!channel) {
+        // Fallback: try to find by URL
+        channel = await Channel.findOne({
+          where: { url: channelData.url }
+        });
+      }
+    } else {
+      // For channels, find by channel_id (preferred)
+      channel = await Channel.findOne({
+        where: { channel_id: channelData.id }
+      });
+      
+      if (!channel) {
+        // Fallback: try to find by URL (for legacy data without channel_id)
+        channel = await Channel.findOne({
+          where: { url: channelData.url }
+        });
+      }
+    }
 
     // Prepare update data
     const updateData = {
-      channel_id: channelData.id,
       title: channelData.title,
       description: channelData.description,
       uploader: channelData.uploader,
       url: channelData.url,
       enabled: enabled,
+      source_type: isPlaylist ? 'playlist' : 'channel',
     };
+    
+    // Set channel_id or playlist_id based on type
+    if (isPlaylist) {
+      updateData.playlist_id = channelData.playlist_id;
+      // For playlists, channel_id might be null
+      if (channelData.id) {
+        updateData.channel_id = channelData.id;
+      }
+    } else {
+      updateData.channel_id = channelData.id;
+    }
 
     // Only set folder_name if explicitly provided (don't overwrite existing with null)
     if (channelData.folder_name) {
@@ -407,24 +523,11 @@ class ChannelModule {
       updateData.auto_download_enabled_tabs = autoDownloadEnabledTabs;
     }
 
-    if (!channel) {
-      // Fallback: try to find by URL (for legacy data without channel_id)
-      channel = await Channel.findOne({
-        where: { url: channelData.url }
-      });
-
-      if (channel) {
-        // Found by URL - update with channel_id and other fields
-        // This backfills legacy data with the channel_id
-        await channel.update(updateData);
-      }
-    } else {
-      // Found by channel_id - just update metadata
+    if (channel) {
+      // Update existing channel/playlist
       await channel.update(updateData);
-    }
-
-    // Only create if not found by either method
-    if (!channel) {
+    } else {
+      // Create new channel/playlist
       channel = await Channel.create(updateData);
     }
 
@@ -703,16 +806,16 @@ class ChannelModule {
   }
 
   /**
-   * Get channel information from database or fetch from YouTube.
+   * Get channel or playlist information from database or fetch from YouTube.
    * First checks database, then fetches from YouTube if not found.
-   * Also handles channel thumbnail download and processing.
-   * @param {string} channelUrlOrId - YouTube channel URL or channel ID
+   * Also handles thumbnail download and processing.
+   * @param {string} channelUrlOrId - YouTube channel/playlist URL or ID
    * @param {boolean} emitMessage - Whether to emit WebSocket update message
-   * @param {boolean} enableChannel - Whether to enable the channel if it's new (default: false)
-   * @returns {Promise<Object>} - Channel information object
+   * @param {boolean} enableChannel - Whether to enable the channel/playlist if it's new (default: false)
+   * @returns {Promise<Object>} - Channel/playlist information object
    */
   async getChannelInfo(channelUrlOrId, emitMessage = true, enableChannel = false) {
-    const { foundChannel, channelUrl } = await this.findChannelByUrlOrId(channelUrlOrId);
+    const { foundChannel, channelUrl, isPlaylist, playlistId } = await this.findChannelByUrlOrId(channelUrlOrId);
 
     if (foundChannel) {
       if (emitMessage) {
@@ -721,70 +824,97 @@ class ChannelModule {
           null,
           'channel',
           'channelsUpdated',
-          { text: 'Channel Updated' }
+          { text: isPlaylist ? 'Playlist Updated' : 'Channel Updated' }
         );
       }
       return this.mapChannelToResponse(foundChannel);
     }
 
-    logger.info('Fetching channel metadata from YouTube');
+    logger.info({ isPlaylist, url: channelUrl }, 'Fetching metadata from YouTube');
     const channelData = await this.fetchChannelMetadata(channelUrl);
-    logger.info('Channel metadata fetched successfully');
+    logger.info('Metadata fetched successfully');
 
-    // Reject channels with no videos - these can't be usefully added
+    // Reject channels/playlists with no videos - these can't be usefully added
     if (!channelData.entries || channelData.entries.length === 0) {
-      const error = new Error('Channel has no videos');
-      error.code = 'CHANNEL_EMPTY';
+      const error = new Error(isPlaylist ? 'Playlist has no videos' : 'Channel has no videos');
+      error.code = isPlaylist ? 'PLAYLIST_EMPTY' : 'CHANNEL_EMPTY';
       throw error;
     }
 
-    // Extract the actual current handle URL from the response
+    // Extract the actual current URL from the response
     const actualChannelUrl = channelData.channel_url || channelData.url || channelUrl;
 
-    // Get the proper channel ID - prefer channel_id, then uploader_id, fallback to id
-    // yt-dlp sometimes returns the handle as 'id', but channel_id or uploader_id should have the UCxxx format
-    const properChannelId = channelData.channel_id || channelData.uploader_id || channelData.id;
+    // Get the proper IDs based on type
+    let properChannelId;
+    let properPlaylistId = null;
+    
+    if (isPlaylist) {
+      // For playlists, the playlist_id is the primary identifier
+      properPlaylistId = playlistId || this.extractPlaylistId(actualChannelUrl) || channelData.playlist_id || channelData.id;
+      // Playlists may also have an associated channel_id (the channel that owns the playlist)
+      properChannelId = channelData.channel_id || channelData.uploader_id || null;
+    } else {
+      // For channels, get the proper channel ID
+      // yt-dlp sometimes returns the handle as 'id', but channel_id or uploader_id should have the UCxxx format
+      properChannelId = channelData.channel_id || channelData.uploader_id || channelData.id;
+    }
 
-    logger.info({ channelId: properChannelId, channelUrl: actualChannelUrl }, 'Storing handle URL for channel');
+    const identifier = isPlaylist ? properPlaylistId : properChannelId;
+    logger.info({ 
+      identifier, 
+      isPlaylist, 
+      url: actualChannelUrl 
+    }, 'Storing URL for channel/playlist');
 
     // Use the sanitized folder name from the metadata (already fetched in the same yt-dlp call)
-    // Fall back to uploader if folder_name wasn't available
-    const folderName = channelData.folder_name || channelData.uploader;
+    // Fall back to uploader or title if folder_name wasn't available
+    const folderName = channelData.folder_name || channelData.uploader || channelData.title;
 
-    // First, upsert the channel so it exists in the database
-    // We'll update auto_download_enabled_tabs after detecting available tabs
-    await this.upsertChannel({
+    // First, upsert the channel/playlist so it exists in the database
+    // We'll update auto_download_enabled_tabs after detecting available tabs (for channels only)
+    const upsertData = {
       id: properChannelId,
       title: channelData.title,
       description: channelData.description,
-      uploader: channelData.uploader,
-      url: actualChannelUrl,  // Store the actual handle URL for display
+      uploader: channelData.uploader || channelData.title,
+      url: actualChannelUrl,  // Store the actual URL for display
       folder_name: folderName,
-    }, enableChannel);
+      source_type: isPlaylist ? 'playlist' : 'channel',
+    };
+    
+    if (isPlaylist) {
+      upsertData.playlist_id = properPlaylistId;
+    }
+    
+    await this.upsertChannel(upsertData, enableChannel);
 
-    // Now process thumbnail using the proper channel ID (uses metadata URL, falls back to yt-dlp)
-    logger.info('Processing channel thumbnail');
-    await this.processChannelThumbnail(channelData, properChannelId, channelUrl);
-    logger.info('Channel thumbnail processed successfully');
+    // Process thumbnail using the proper identifier
+    logger.info('Processing thumbnail');
+    await this.processChannelThumbnail(channelData, identifier, channelUrl);
+    logger.info('Thumbnail processed successfully');
 
-    // Detect available tabs (fast via RSS feeds)
-    const tabResult = await this.detectAndSaveChannelTabs(properChannelId);
+    let tabResult = null;
+    
+    // Detect available tabs only for channels (playlists don't have tabs)
+    if (!isPlaylist && properChannelId) {
+      tabResult = await this.detectAndSaveChannelTabs(properChannelId);
+    }
 
     if (emitMessage) {
-      logger.debug('Channel data fetched, emitting update message');
+      logger.debug('Data fetched, emitting update message');
       MessageEmitter.emitMessage(
         'broadcast',
         null,
         'channel',
         'channelsUpdated',
-        { text: 'Channel Updated' }
+        { text: isPlaylist ? 'Playlist Updated' : 'Channel Updated' }
       );
     }
 
     return {
-      id: properChannelId,
-      uploader: channelData.uploader,
-      uploader_id: channelData.uploader_id || properChannelId,
+      id: identifier,
+      uploader: channelData.uploader || channelData.title,
+      uploader_id: properChannelId,
       title: channelData.title,
       description: channelData.description,
       url: channelUrl,
@@ -792,6 +922,8 @@ class ChannelModule {
       available_tabs: tabResult?.availableTabs?.join(',') || null,
       sub_folder: null,
       video_quality: null,
+      source_type: isPlaylist ? 'playlist' : 'channel',
+      playlist_id: properPlaylistId,
     };
   }
 

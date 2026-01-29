@@ -86,6 +86,16 @@ Channel.init(
       allowNull: true,
       defaultValue: null,
     },
+    source_type: {
+      type: DataTypes.STRING(20),
+      allowNull: false,
+      defaultValue: 'channel',
+    },
+    playlist_id: {
+      type: DataTypes.STRING(255),
+      allowNull: true,
+      defaultValue: null,
+    },
   },
   {
     sequelize,

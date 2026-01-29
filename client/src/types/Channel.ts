@@ -12,4 +12,6 @@ export interface Channel {
   max_duration?: number | null;
   title_filter_regex?: string | null;
   audio_format?: string | null;
+  source_type?: 'channel' | 'playlist';
+  playlist_id?: string | null;
 }
