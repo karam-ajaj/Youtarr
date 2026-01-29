@@ -341,8 +341,8 @@ const ChannelManager: React.FC<ChannelManagerProps> = ({ token }) => {
               <TextField
                 fullWidth
                 size="small"
-                label="Add a new channel"
-                placeholder="Paste a channel URL or @handle"
+                label="Add a new channel or playlist"
+                placeholder="Paste a channel or playlist URL (e.g., @handle or playlist?list=...)"
                 value={newChannelUrl}
                 onChange={(e) => setNewChannelUrl(e.target.value)}
                 onKeyDown={(e) => {
@@ -364,7 +364,7 @@ const ChannelManager: React.FC<ChannelManagerProps> = ({ token }) => {
                 onClick={handleAddChannel}
                 disabled={isAddingChannel || !newChannelUrl.trim()}
               >
-                {isAddingChannel ? 'Adding…' : 'Add Channel'}
+                {isAddingChannel ? 'Adding…' : 'Add'}
               </Button>
             </Grid>
           </Grid>

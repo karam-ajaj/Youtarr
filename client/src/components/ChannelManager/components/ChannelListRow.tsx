@@ -10,6 +10,7 @@ import {
   Divider,
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
+import PlaylistPlayIcon from '@mui/icons-material/PlaylistPlay';
 import { Channel } from '../../../types/Channel';
 import { SubFolderChip, QualityChip, AutoDownloadChips, DurationFilterChip, TitleFilterChip, DownloadFormatConfigIndicator } from './chips';
 
@@ -39,8 +40,13 @@ const ChannelListRow: React.FC<ChannelListRowProps> = ({
   const [thumbnailVisible, setThumbnailVisible] = useState(true);
   const hasFilters = channel.min_duration || channel.max_duration || channel.title_filter_regex;
 
-  const thumbnailSrc = channel.channel_id
-    ? `/images/channelthumb-${channel.channel_id}.jpg`
+  // Determine identifier for thumbnail (playlist_id for playlists, channel_id for channels)
+  const identifier = channel.source_type === 'playlist' && channel.playlist_id 
+      ? channel.playlist_id 
+      : channel.channel_id;
+  
+  const thumbnailSrc = identifier
+    ? `/images/channelthumb-${identifier}.jpg`
     : '/images/channelthumb-default.jpg';
 
   const renderChannelHeader = () => (
@@ -64,9 +70,20 @@ const ChannelListRow: React.FC<ChannelListRowProps> = ({
       )}
       <Box sx={{ minWidth: 0 }}>
         <Box sx={{ display: 'flex', flexDirection: 'column', minWidth: 0, gap: 0 }}>
-          <Typography variant={isMobile ? 'h6' : 'h5'} noWrap sx={{ minWidth: 0 }}>
-            {channel.uploader || 'Unknown Channel'}
-          </Typography>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+            <Typography variant={isMobile ? 'h6' : 'h5'} noWrap sx={{ minWidth: 0 }}>
+              {channel.uploader || 'Unknown Channel'}
+            </Typography>
+            {channel.source_type === 'playlist' && (
+              <Chip 
+                icon={<PlaylistPlayIcon />}
+                label="Playlist" 
+                size="small" 
+                color="info" 
+                variant="outlined"
+              />
+            )}
+          </Box>
           {/* On mobile we show folder and quality chips right under the channel name */}
           {isMobile && (
             <Box sx={{ mt: 0.25, display: 'flex', gap: 0.5, flexWrap: 'wrap', alignItems: 'center' }}>

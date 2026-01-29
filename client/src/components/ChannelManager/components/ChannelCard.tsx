@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Avatar, Box, Card, CardActionArea, CardContent, Chip, IconButton, Tooltip, Typography } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import ImageIcon from '@mui/icons-material/Image';
+import PlaylistPlayIcon from '@mui/icons-material/PlaylistPlay';
 import { Channel } from '../../../types/Channel';
 import { QualityChip, AutoDownloadChips, DurationFilterChip, TitleFilterChip, DownloadFormatConfigIndicator } from './chips';
 import FolderIcon from '@mui/icons-material/Folder';
@@ -28,8 +29,13 @@ const ChannelCard: React.FC<ChannelCardProps> = ({
     const [thumbnailVisible, setThumbnailVisible] = useState(true);
     const [thumbnailLoaded, setThumbnailLoaded] = useState(false);
 
-    const thumbnailSrc = channel.channel_id
-        ? `/images/channelthumb-${channel.channel_id}.jpg`
+    // Determine identifier for thumbnail (playlist_id for playlists, channel_id for channels)
+    const identifier = channel.source_type === 'playlist' && channel.playlist_id 
+        ? channel.playlist_id 
+        : channel.channel_id;
+    
+    const thumbnailSrc = identifier
+        ? `/images/channelthumb-${identifier}.jpg`
         : '/images/channelthumb-default.jpg';
 
     return (
@@ -200,7 +206,18 @@ const ChannelCard: React.FC<ChannelCardProps> = ({
                                 </Typography>
                             </Box>
                         </Box>
-                        {isPendingAddition && <Chip label="Pending" size="small" color="warning" />}
+                        <Box sx={{ display: 'flex', gap: 0.5 }}>
+                            {channel.source_type === 'playlist' && (
+                                <Chip 
+                                    icon={<PlaylistPlayIcon />}
+                                    label="Playlist" 
+                                    size="small" 
+                                    color="info" 
+                                    variant="outlined"
+                                />
+                            )}
+                            {isPendingAddition && <Chip label="Pending" size="small" color="warning" />}
+                        </Box>
                     </Box>
 
                     <CardDetails
